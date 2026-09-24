@@ -221,5 +221,30 @@ echo "==> Membuat zip paket akhir (flashable lewat recovery)"
 ( cd "$PKGDIR" && zip -r -X "$OUT/${NAME}.zip" . -x '*.DS_Store' > /dev/null )
 rm -rf "$PKGDIR"
 
+ZIP_PATH="$OUT/${NAME}.zip"
+sha256sum "$ZIP_PATH" | awk '{print $1"  '"${NAME}"'.zip"}' > "$OUT/${NAME}.zip.sha256"
+
+# GitHub Release asset dibatasi KERAS 2GB per file (2147483648 byte) -- limit
+# platform, bukan sesuatu yang bisa dinaikkan lewat token/permission. Artifact
+# GitHub Actions TIDAK kena limit ini, jadi selalu simpan zip utuh di folder
+# artifact/; folder release/ dipecah otomatis kalau lewat batas supaya upload
+# ke Release tidak gagal lagi.
+mkdir -p "$OUT/artifact" "$OUT/release"
+cp "$ZIP_PATH" "$OUT/artifact/${NAME}.zip"
+cp "$OUT/${NAME}.zip.sha256" "$OUT/artifact/"
+
+GH_RELEASE_LIMIT=2147483648
+ZIP_SIZE=$(stat -c%s "$ZIP_PATH")
+if [ "$ZIP_SIZE" -ge "$GH_RELEASE_LIMIT" ]; then
+  echo "==> Zip ${ZIP_SIZE} byte >= limit GitHub Release asset (2GB) -- dipecah untuk Release"
+  split -b 1950M -d -a 2 "$ZIP_PATH" "$OUT/release/${NAME}.zip.part-"
+  cp "$OUT/${NAME}.zip.sha256" "$OUT/release/"
+  echo "    Gabung ulang sebelum flash: cat ${NAME}.zip.part-* > ${NAME}.zip"
+  ls -lh "$OUT/release/"
+else
+  cp "$ZIP_PATH" "$OUT/release/${NAME}.zip"
+  cp "$OUT/${NAME}.zip.sha256" "$OUT/release/"
+fi
+
 echo "==> Selesai:"
-ls -lh "$OUT/${NAME}.zip"
+ls -lh "$ZIP_PATH"
