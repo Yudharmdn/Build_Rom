@@ -24,7 +24,7 @@ on:
         type: boolean
         default: false
       sync_only:
-        description: "Hanya repo init + sync (buat tes local manifest dulu, tanpa build)"
+        description: "Hanya repo init + sync (buat tes local manifest & ukur disk, tanpa build)"
         type: boolean
         default: false
       shallow_clone:
@@ -35,19 +35,10 @@ on:
         description: "INFINITY_MAINTAINER"
         type: string
         default: "Yudharn"
-      runner_label:
-        description: "Label runner: label self-hosted kamu, atau 'ubuntu-latest' buat coba GitHub-hosted"
-        type: string
-        default: "self-hosted"
-      constrained_disk:
-        description: "Mode hemat disk (buat GitHub-hosted ~80GB): maksimalkan disk, tanpa ccache"
-        type: boolean
-        default: false
 
 env:
-  # GANTI: arahkan ke disk dengan storage besar (200GB+ disarankan) di runner self-hosted
-  # kamu. Di mode constrained_disk, path ini otomatis jadi mount point volume gabungan
-  # dari step "Maksimalkan disk runner" — biarkan saja, tidak perlu diganti kalau begitu.
+  # Otomatis jadi mount point volume gabungan dari step "Maksimalkan disk runner" —
+  # tidak perlu diganti.
   INFINITY_SRC_DIR: /srv/infinity-marble
   ROM_MANIFEST_URL: https://github.com/ProjectInfinity-X/manifest
   ROM_BRANCH: "17"
@@ -55,8 +46,8 @@ env:
 
 jobs:
   build:
-    runs-on: ${{ inputs.runner_label }}
-    timeout-minutes: 1440
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
     defaults:
       run:
         shell: bash
@@ -67,8 +58,7 @@ jobs:
       # Gabungkan sisa partisi root + disk temp jadi satu volume, plus buang paket
       # bawaan (dotnet/android-sdk-duplikat/haskell/codeql/docker images) yang tidak
       # kepakai. Realistanya nambah dari ~14GB ke kira-kira 60-90GB, tergantung image.
-      - name: Maksimalkan disk runner (mode constrained_disk)
-        if: ${{ inputs.constrained_disk == true }}
+      - name: Maksimalkan disk runner
         uses: easimon/maximize-build-space@master
         with:
           root-reserve-mb: 2048
@@ -81,14 +71,12 @@ jobs:
           remove-docker-images: 'true'
           build-mount-path: ${{ env.INFINITY_SRC_DIR }}
 
-      # Runner GitHub-hosted itu VM baru tiap run — repo/git-lfs/ccache belum tentu ada,
-      # beda dari self-hosted yang kamu setup sendiri sekali di awal.
-      - name: Install repo tool & dependencies (mode constrained_disk)
-        if: ${{ inputs.constrained_disk == true }}
+      # Runner GitHub-hosted itu VM baru tiap run — repo/git-lfs belum tentu ada.
+      - name: Install repo tool & dependencies
         run: |
           set -euo pipefail
           sudo apt-get update -y
-          sudo apt-get install -y git-lfs ccache
+          sudo apt-get install -y git-lfs
           mkdir -p "$HOME/bin"
           curl -sL https://storage.googleapis.com/git-repo-downloads/repo -o "$HOME/bin/repo"
           chmod a+x "$HOME/bin/repo"
@@ -98,9 +86,9 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for c in repo git git-lfs java python3 ccache curl; do
+          for c in repo git git-lfs java python3 curl; do
             if ! command -v "$c" >/dev/null 2>&1; then
-              echo "::error::'$c' tidak ditemukan di runner. Install dulu sebelum lanjut."
+              echo "::error::'$c' tidak ditemukan di runner."
               missing=1
             fi
           done
@@ -145,6 +133,12 @@ jobs:
           set -euo pipefail
           repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j"$(nproc --all)"
 
+      - name: Cek sisa disk setelah sync
+        working-directory: ${{ env.INFINITY_SRC_DIR }}
+        run: |
+          df -h "${{ env.INFINITY_SRC_DIR }}"
+          du -sh . 2>/dev/null || true
+
       - name: Buat infinity_marble.mk (product file khusus Infinity-X)
         working-directory: ${{ env.INFINITY_SRC_DIR }}
         run: |
@@ -185,18 +179,6 @@ jobs:
           BUILD_FINGERPRINT := POCO/marble_global/marble:15/AQ3A.250226.002/OS3.0.4.0.VMRMIXM:user/release-keys
           MKEOF
 
-      # Di mode constrained_disk sengaja dilewati — runner GitHub-hosted itu sekali pakai
-      # (dibuang tiap run), jadi ccache besar cuma makan disk tanpa untung cross-run.
-      - name: Setup ccache
-        if: ${{ inputs.constrained_disk != true }}
-        working-directory: ${{ env.INFINITY_SRC_DIR }}
-        run: |
-          set -euo pipefail
-          export CCACHE_EXEC="$(command -v ccache)"
-          export USE_CCACHE=1
-          ccache -M 75G
-          ccache -o compression=true
-
       - name: Lunch & build (bacon)
         if: ${{ inputs.sync_only != true }}
         working-directory: ${{ env.INFINITY_SRC_DIR }}
@@ -204,10 +186,6 @@ jobs:
           set -euo pipefail
           source build/envsetup.sh
 
-          if [ "${{ inputs.constrained_disk }}" != "true" ]; then
-            export USE_CCACHE=1
-            export CCACHE_EXEC="$(command -v ccache)"
-          fi
           export INFINITY_MAINTAINER="${{ inputs.maintainer_name }}"
           export WITH_GAPPS="${{ inputs.with_gapps }}"
           export TARGET_HAS_UDFPS=false
