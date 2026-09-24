@@ -95,7 +95,10 @@ jobs:
             2>/dev/null || true
           sudo apt-get autoremove -y >/dev/null 2>&1 || true
           sudo apt-get clean || true
+          echo "--- / (harusnya kecil, hampir penuh, INI NORMAL — lihat penjelasan di bawah) ---"
           df -h /
+          echo "--- ${{ env.INFINITY_SRC_DIR }} (volume gabungan hasil maximize-build-space, INI yang penting) ---"
+          df -h "${{ env.INFINITY_SRC_DIR }}"
 
       - name: Install repo tool & dependencies
         run: |
