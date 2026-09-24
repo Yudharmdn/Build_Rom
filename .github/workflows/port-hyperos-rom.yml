@@ -48,6 +48,11 @@ jobs:
     name: Port ROM
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    # GITHUB_TOKEN default cuma read-only kalau tidak dideklarasikan di sini --
+    # softprops/action-gh-release butuh contents:write untuk buat Release
+    # (tanpa ini gagal 403 "Resource not accessible by integration").
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
