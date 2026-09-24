@@ -179,7 +179,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.output_name }}
-          path: ${{ env.WORKDIR }}/out/*.zip
+          path: ${{ env.WORKDIR }}/out/artifact/*
           retention-days: 14
 
       - name: Create GitHub Release
@@ -188,7 +188,7 @@ jobs:
         with:
           tag_name: port-${{ inputs.output_name }}-${{ github.run_number }}
           name: ${{ inputs.output_name }} (build ${{ github.run_number }})
-          files: ${{ env.WORKDIR }}/out/*.zip
+          files: ${{ env.WORKDIR }}/out/release/*
           body: |
             Quick-port otomatis.
             - Mode: ${{ inputs.port_mode }}
@@ -196,6 +196,14 @@ jobs:
             - fstab dipatch (forceencrypt off + rw): ${{ inputs.patch_fstab }}
             - Donor: ${{ inputs.donor_rom_url }}
             - Target base: marble (POCO F5)
+
+            📦 Kalau asset di release ini ada beberapa `*.zip.part-NN`, GitHub
+            membatasi 2GB per file jadi paketnya dipecah otomatis. Unduh SEMUA
+            bagian lalu gabung sebelum di-push ke device (bisa langsung di
+            Termux di HP, tidak perlu PC):
+            `cat *.zip.part-* > ${{ inputs.output_name }}.zip`
+            Lalu cocokkan checksum-nya dengan file `.sha256` yang ikut di-upload:
+            `sha256sum -c ${{ inputs.output_name }}.zip.sha256`
 
             ⚠️ Belum diuji flashing fisik. Baca README repo ini sebelum flash ke device utama.
             
