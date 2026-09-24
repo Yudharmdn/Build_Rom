@@ -29,6 +29,11 @@ on:
         required: false
         type: boolean
         default: true
+      patch_fstab:
+        description: 'Patch fstab di vendor/odm: hapus forceencrypt/fileencryption + set mount system/vendor/product/odm jadi rw'
+        required: false
+        type: boolean
+        default: true
       create_release:
         description: 'Upload hasil sebagai GitHub Release'
         required: false
@@ -70,25 +75,35 @@ jobs:
             python3 python3-pip
           df -h /
 
-      - name: Build lpunpack/lpmake
+      # affggh/zenstorage lpunpack_and_lpmake TIDAK dipakai lagi -- build.sh mereka
+      # ikut mengompilasi liblog upstream yang punya #include <windows.h> tak
+      # terjaga (gagal fatal di Linux). nmeum/android-tools adalah build system
+      # CMake yang sudah dipatch bersih untuk Linux, dipakai langsung oleh paket
+      # android-tools Alpine/NixOS/openmamba -- satu build ini menghasilkan
+      # lpunpack, lpmake, lpdump, DAN avbtool sekaligus.
+      - name: Build android-tools (lpunpack/lpmake/lpdump/avbtool)
         run: |
           set -euo pipefail
+          sudo apt-get install -y --no-install-recommends \
+            cmake libusb-1.0-0-dev libpcre2-dev libgtest-dev \
+            protobuf-compiler libprotobuf-dev libbrotli-dev \
+            libzstd-dev liblz4-dev
+          AT_VER=36.0.1
           mkdir -p "$WORKDIR/tools" "$WORKDIR/bin"
-          git clone --depth 1 https://github.com/affggh/lpunpack_and_lpmake "$WORKDIR/tools/lpunpack_and_lpmake" \
-            || git clone --depth 1 https://github.com/zenstorage/lpunpack_and_lpmake "$WORKDIR/tools/lpunpack_and_lpmake"
-          cd "$WORKDIR/tools/lpunpack_and_lpmake"
-          chmod +x make.sh
-          ./make.sh
-          find . -maxdepth 2 -type f -executable \( -name 'lpunpack' -o -name 'lpmake' -o -name 'lpdump' \) \
+          curl -Ls "https://github.com/nmeum/android-tools/releases/download/${AT_VER}/android-tools-${AT_VER}.tar.xz" \
+            -o "$WORKDIR/android-tools.tar.xz"
+          tar -xJf "$WORKDIR/android-tools.tar.xz" -C "$WORKDIR/tools"
+          cd "$WORKDIR/tools/android-tools-${AT_VER}"
+          mkdir -p build && cd build
+          cmake ..
+          make -j"$(nproc)"
+          find . -maxdepth 4 -type f -executable \
+            \( -name 'lpunpack' -o -name 'lpmake' -o -name 'lpdump' -o -name 'avbtool*' \) \
             -exec cp {} "$WORKDIR/bin/" \;
+          # avbtool upstream adalah script Python -- pastikan nama biner konsisten "avbtool"
+          [ -f "$WORKDIR/bin/avbtool" ] || { f=$(find "$WORKDIR/bin" -maxdepth 1 -name 'avbtool*' | head -n1); [ -n "$f" ] && mv "$f" "$WORKDIR/bin/avbtool"; }
+          chmod +x "$WORKDIR/bin/"* 2>/dev/null || true
           ls -l "$WORKDIR/bin"
-
-      - name: Fetch avbtool
-        run: |
-          set -euo pipefail
-          git clone --depth 1 https://android.googlesource.com/platform/external/avb "$WORKDIR/tools/avb"
-          cp "$WORKDIR/tools/avb/avbtool.py" "$WORKDIR/bin/avbtool"
-          chmod +x "$WORKDIR/bin/avbtool"
 
       - name: Fetch payload-dumper-go
         run: |
@@ -127,6 +142,11 @@ jobs:
           DISABLE_AVB: ${{ inputs.disable_avb }}
         run: scripts/port_rom.sh "$WORKDIR/donor_img" "$WORKDIR/target_img" "$WORKDIR/merged" "$WORKDIR/bin" "$PORT_MODE" "$DISABLE_AVB"
 
+      - name: Patch fstab (disable forceencrypt + rw)
+        env:
+          PATCH_FSTAB: ${{ inputs.patch_fstab }}
+        run: scripts/patch_fstab.sh "$WORKDIR/merged" "$WORKDIR/bin" "$PATCH_FSTAB"
+
       - name: Package flashable bundle
         env:
           OUTPUT_NAME: ${{ inputs.output_name }}
@@ -161,6 +181,7 @@ jobs:
             Quick-port otomatis.
             - Mode: ${{ inputs.port_mode }}
             - AVB verification disabled: ${{ inputs.disable_avb }}
+            - fstab dipatch (forceencrypt off + rw): ${{ inputs.patch_fstab }}
             - Donor: ${{ inputs.donor_rom_url }}
             - Target base: marble (POCO F5)
 
