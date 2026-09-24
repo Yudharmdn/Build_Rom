@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  local_manifests/marble.xml
+  Device/vendor/kernel tree untuk POCO F5 (marble) - Infinity X branch 17 (Android 17).
+
+  Infinity-X & LineageOS resmi belum punya device tree marble untuk Android 17
+  (LineageOS official mentok di branch lineage-23.2). Semua repo di bawah ini diambil
+  dari Evolution-X-Devices, branch "cnb", yang basisnya SAMA dengan Infinity-X branch 17
+  (AOSP tag android-17.0.0_r1 / lineage-24.0) — dicek satu-satu via `git ls-remote`
+  per 24 Sep 2026, semua branch di bawah memang ada dan lengkap.
+
+  Cara pakai: taruh file ini di .repo/local_manifests/marble.xml setelah `repo init`,
+  sebelum `repo sync`. Workflow build-infinity-marble-a17.yml sudah melakukan ini
+  otomatis.
+
+  PENTING: saat repo init, tambahkan group "qcom,waipio-vendor" di flag -g (selain
+  default,-mips,-darwin,-notdefault dari README Infinity-X) — kalau tidak, file
+  hardware/qcom-caf/sm8450/... yang dibutuhkan BoardConfigCommon.mk (sm8450-common)
+  tidak ikut ke-sync dan build akan gagal.
+-->
+<manifest>
+  <remote name="evo-devices" fetch="https://github.com/Evolution-X-Devices" />
+  <remote name="kenway214" fetch="https://github.com/kenway214" />
+
+  <!-- Device -->
+  <project path="device/xiaomi/marble" name="device_xiaomi_marble"
+           remote="evo-devices" revision="cnb" clone-depth="1" />
+  <project path="device/xiaomi/sm8450-common" name="device_xiaomi_sm8450-common"
+           remote="evo-devices" revision="cnb" clone-depth="1" />
+  <project path="device/xiaomi/miuicamera-marble" name="device_xiaomi_miuicamera-marble"
+           remote="evo-devices" revision="cnb" clone-depth="1" />
+
+  <!-- Vendor (proprietary blobs) -->
+  <project path="vendor/xiaomi/marble" name="vendor_xiaomi_marble"
+           remote="evo-devices" revision="cnb" clone-depth="1" />
+  <project path="vendor/xiaomi/sm8450-common" name="vendor_xiaomi_sm8450-common"
+           remote="evo-devices" revision="cnb" clone-depth="1" />
+  <project path="vendor/xiaomi/miuicamera-marble" name="vendor_xiaomi_miuicamera-marble"
+           remote="evo-devices" revision="cnb" clone-depth="1" />
+
+  <!-- Kernel (sm8450/Waipio - marble pakai SM7475, yang secara platform sekeluarga
+       dengan SM8450, karena itu source kernelnya memang dari tree sm8450) -->
+  <project path="kernel/xiaomi/sm8450" name="kernel_xiaomi_sm8450"
+           remote="evo-devices" revision="cnb" clone-depth="1" />
+  <project path="kernel/xiaomi/sm8450-devicetrees" name="kernel_xiaomi_sm8450-devicetrees"
+           remote="evo-devices" revision="cnb" clone-depth="1" />
+  <project path="kernel/xiaomi/sm8450-modules" name="kernel_xiaomi_sm8450-modules"
+           remote="evo-devices" revision="cnb" clone-depth="1" />
+
+  <!-- Hardware abstraction -->
+  <project path="hardware/xiaomi" name="hardware_xiaomi"
+           remote="evo-devices" revision="cnb-no-dolby" clone-depth="1" />
+  <project path="hardware/dolby" name="hardware_dolby"
+           remote="evo-devices" revision="cnb-aospa" clone-depth="1" />
+
+  <!-- device.mk marble menarik langsung packages/apps/GameBar/gamebar.mk, jadi wajib ada -->
+  <project path="packages/apps/GameBar" name="packages_apps_GameBar"
+           remote="kenway214" revision="lineage-23.2" clone-depth="1" />
+</manifest>
