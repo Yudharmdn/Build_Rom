@@ -1,0 +1,168 @@
+name: Port HyperOS ROM to marble (POCO F5)
+
+on:
+  workflow_dispatch:
+    inputs:
+      donor_rom_url:
+        description: 'URL ROM donor (paket fastboot .tgz/.zip berisi image mentah, ATAU paket recovery/OTA berisi payload.bin)'
+        required: true
+        type: string
+      target_rom_url:
+        description: 'URL stock ROM fastboot marble/POCO F5 (sumber vendor, odm, boot, firmware)'
+        required: true
+        type: string
+      output_name:
+        description: 'Nama dasar file output (tanpa ekstensi)'
+        required: false
+        type: string
+        default: 'marble_HyperOS_Port'
+      port_mode:
+        description: 'system_only = paling aman (disarankan untuk donor beda chipset). system_vendor = ambil vendor dari donor juga (HANYA jika donor & marble satu platform chipset yang sama)'
+        required: true
+        type: choice
+        options:
+          - system_only
+          - system_vendor
+        default: system_only
+      disable_avb:
+        description: 'Nonaktifkan verifikasi AVB pada vbmeta (wajib untuk quick port lintas-ROM)'
+        required: false
+        type: boolean
+        default: true
+      create_release:
+        description: 'Upload hasil sebagai GitHub Release'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  WORKDIR: ${{ github.workspace }}/portwork
+
+jobs:
+  port:
+    name: Port ROM
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # ROM Xiaomi fastboot bisa 6-8GB per paket (donor + target = bisa >15GB).
+      # Runner GitHub hosted default cuma ~14GB free space kalau tidak dibersihkan dulu.
+      - name: Free up disk space
+        run: |
+          set -x
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/.ghcup \
+            /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" 2>/dev/null || true
+          sudo docker image prune --all --force 2>/dev/null || true
+          df -h /
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            android-sdk-libsparse-utils \
+            e2fsprogs erofs-utils \
+            brotli xz-utils zip unzip p7zip-full \
+            aria2 curl git build-essential \
+            python3 python3-pip
+          df -h /
+
+      - name: Build lpunpack/lpmake
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORKDIR/tools" "$WORKDIR/bin"
+          git clone --depth 1 https://github.com/affggh/lpunpack_and_lpmake "$WORKDIR/tools/lpunpack_and_lpmake" \
+            || git clone --depth 1 https://github.com/zenstorage/lpunpack_and_lpmake "$WORKDIR/tools/lpunpack_and_lpmake"
+          cd "$WORKDIR/tools/lpunpack_and_lpmake"
+          chmod +x make.sh
+          ./make.sh
+          find . -maxdepth 2 -type f -executable \( -name 'lpunpack' -o -name 'lpmake' -o -name 'lpdump' \) \
+            -exec cp {} "$WORKDIR/bin/" \;
+          ls -l "$WORKDIR/bin"
+
+      - name: Fetch avbtool
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://android.googlesource.com/platform/external/avb "$WORKDIR/tools/avb"
+          cp "$WORKDIR/tools/avb/avbtool.py" "$WORKDIR/bin/avbtool"
+          chmod +x "$WORKDIR/bin/avbtool"
+
+      - name: Fetch payload-dumper-go
+        run: |
+          set -euo pipefail
+          PDG_VER=1.2.2
+          curl -Ls "https://github.com/ssut/payload-dumper-go/releases/download/${PDG_VER}/payload-dumper-go_${PDG_VER}_linux_amd64.tar.gz" \
+            -o "$WORKDIR/pdg.tar.gz"
+          tar -xzf "$WORKDIR/pdg.tar.gz" -C "$WORKDIR/bin" payload-dumper-go
+          chmod +x "$WORKDIR/bin/payload-dumper-go"
+
+      - name: Prepare workspace
+        run: |
+          mkdir -p "$WORKDIR"/{donor,target,donor_img,target_img,out,merged}
+          echo "$WORKDIR/bin" >> "$GITHUB_PATH"
+          chmod +x scripts/*.sh
+
+      - name: Download donor ROM
+        env:
+          DONOR_URL: ${{ inputs.donor_rom_url }}
+        run: scripts/download_rom.sh "$DONOR_URL" "$WORKDIR/donor"
+
+      - name: Download target (marble) ROM
+        env:
+          TARGET_URL: ${{ inputs.target_rom_url }}
+        run: scripts/download_rom.sh "$TARGET_URL" "$WORKDIR/target"
+
+      - name: Extract donor images
+        run: scripts/extract_rom.sh "$WORKDIR/donor" "$WORKDIR/donor_img" "$WORKDIR/bin"
+
+      - name: Extract target images
+        run: scripts/extract_rom.sh "$WORKDIR/target" "$WORKDIR/target_img" "$WORKDIR/bin"
+
+      - name: Run port (merge donor + target)
+        env:
+          PORT_MODE: ${{ inputs.port_mode }}
+          DISABLE_AVB: ${{ inputs.disable_avb }}
+        run: scripts/port_rom.sh "$WORKDIR/donor_img" "$WORKDIR/target_img" "$WORKDIR/merged" "$WORKDIR/bin" "$PORT_MODE" "$DISABLE_AVB"
+
+      - name: Package flashable bundle
+        env:
+          OUTPUT_NAME: ${{ inputs.output_name }}
+        run: scripts/package_rom.sh "$WORKDIR/merged" "$WORKDIR/target_img" "$WORKDIR/out" "$OUTPUT_NAME" "$WORKDIR/bin"
+
+      - name: Upload manifest/debug info on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: port-debug-${{ github.run_id }}
+          path: |
+            ${{ env.WORKDIR }}/merged/PORT_MANIFEST.txt
+            ${{ env.WORKDIR }}/out/target_super_dump.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.output_name }}
+          path: ${{ env.WORKDIR }}/out/*.zip
+          retention-days: 14
+
+      - name: Create GitHub Release
+        if: ${{ inputs.create_release }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: port-${{ inputs.output_name }}-${{ github.run_number }}
+          name: ${{ inputs.output_name }} (build ${{ github.run_number }})
+          files: ${{ env.WORKDIR }}/out/*.zip
+          body: |
+            Quick-port otomatis.
+            - Mode: ${{ inputs.port_mode }}
+            - AVB verification disabled: ${{ inputs.disable_avb }}
+            - Donor: ${{ inputs.donor_rom_url }}
+            - Target base: marble (POCO F5)
+
+            ⚠️ Belum diuji flashing fisik. Baca README repo ini sebelum flash ke device utama.
+            
