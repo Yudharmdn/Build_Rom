@@ -89,19 +89,6 @@ jobs:
       # butuh RAM lebih dari 16GB fisik — ini MAKAN JATAH DISK yang sama, bukan nambah
       # RAM sungguhan (lihat catatan RAM di atas). 16GB swap = 16GB lebih sedikit buat
       # source+build dari sisa disk hasil maksimalkan tadi.
-      - name: Maksimalkan disk runner
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 2048
-          temp-reserve-mb: 100
-          swap-size-mb: 8192
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
-          build-mount-path: ${{ env.INFINITY_SRC_DIR }}
-
       # maximize-build-space cuma buang 5 kategori di atas. Sisa image ubuntu-latest
       # masih bawa banyak lagi yang gak kepakai buat build Android — disapu manual di
       # sini, satu-satu (bukan satu baris panjang) supaya satu nama paket yang gak ada
@@ -126,6 +113,11 @@ jobs:
           df -h /
           echo "--- ${{ env.INFINITY_SRC_DIR }} (volume gabungan hasil maximize-build-space, INI yang penting) ---"
           df -h "${{ env.INFINITY_SRC_DIR }}"
+
+      - name: Set swap space
+        uses: pierotofy/set-swap-space@master
+        with:
+         swap-size-gb: 8
 
       - name: Install repo tool & dependencies
         run: |
