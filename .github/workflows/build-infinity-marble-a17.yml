@@ -96,24 +96,6 @@ jobs:
       # JDK apa pun — AOSP build pakai prebuilt JDK dari source tree sendiri
       # (prebuilts/jdk/), tapi saya tidak mau ambil risiko salah hapus versi yang
       # ternyata masih dipakai host tooling.
-      - name: Bersihkan paket tambahan yang tidak kepakai
-        run: |
-          set -euo pipefail
-          for pkg in azure-cli google-cloud-cli google-cloud-sdk powershell \
-                     firefox google-chrome-stable microsoft-edge-stable \
-                     mysql-server mongodb-org-server; do
-            sudo apt-get remove -y --purge "$pkg" >/dev/null 2>&1 || true
-          done
-          sudo rm -rf /usr/share/swift /usr/local/julia* /opt/az /opt/google-cloud-sdk \
-            /usr/local/lib/heroku /usr/local/share/chromium /usr/share/dotnet \
-            2>/dev/null || true
-          sudo apt-get autoremove -y >/dev/null 2>&1 || true
-          sudo apt-get clean || true
-          echo "--- / (harusnya kecil, hampir penuh, INI NORMAL — lihat penjelasan di bawah) ---"
-          df -h /
-          echo "--- ${{ env.INFINITY_SRC_DIR }} (volume gabungan hasil maximize-build-space, INI yang penting) ---"
-          df -h "${{ env.INFINITY_SRC_DIR }}"
-
       - name: Set swap space
         uses: pierotofy/set-swap-space@master
         with:
